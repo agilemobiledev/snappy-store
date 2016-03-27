@@ -124,22 +124,20 @@ public final class SnappyResultHolder extends GfxdDataSerializable {
 
   private void makeTemplateDVDArr() {
     dtds = new DataTypeDescriptor[colTypes.length];
-    DataValueDescriptor[] temp = new DataValueDescriptor[colTypes.length];
-    for(int i=0; i<colTypes.length; i++) {
+    DataValueDescriptor[] dvds = new DataValueDescriptor[colTypes.length];
+    for (int i = 0; i < colTypes.length; i++) {
       int typeId = colTypes[i];
-      DataValueDescriptor dvd = getNewNullDVD(typeId, i, dtds, precisions[i], scales[i]);
-      temp[i] = dvd;
+      DataValueDescriptor dvd = getNewNullDVD(typeId, i, dtds,
+          precisions[i], scales[i]);
+      dvds[i] = dvd;
     }
-    this.templateDVDRow = temp;
-    this.execRow = new ValueRow((templateDVDRow));
+    this.templateDVDRow = dvds;
+    this.execRow = new ValueRow(templateDVDRow);
     // determine eight col groups and partial col
     int numCols = colTypes.length;
     if (numEightColGrps < 0) {
-      numEightColGrps = numCols / 8 + (numCols % 8 == 0 ? 0 : 1);
+      numEightColGrps = numCols / 8;
       numPartialCols = numCols % 8;
-      if (numPartialCols == 0) {
-        numPartialCols = 8;
-      }
     }
   }
 
@@ -165,8 +163,8 @@ public final class SnappyResultHolder extends GfxdDataSerializable {
       if (templateDVDRow == null) {
         makeTemplateDVDArr();
       }
-      CallbackFactoryProvider.getClusterCallbacks().readDVDArray(templateDVDRow,
-          this.dis, numEightColGrps, numPartialCols);
+      CallbackFactoryProvider.getClusterCallbacks().readDVDArray(
+          templateDVDRow, colTypes, this.dis, numEightColGrps, numPartialCols);
       return this.execRow;
     }
     this.dis = null;
@@ -245,6 +243,7 @@ public final class SnappyResultHolder extends GfxdDataSerializable {
         break;
 
       case StoredFormatIds.SQL_CLOB_ID:
+      case StoredFormatIds.SQL_VARCHAR_ID:
         dvd = new SQLClob();
         jdbcTypeId = Types.CLOB;
         dtd = DataTypeDescriptor.getBuiltInDataTypeDescriptor(jdbcTypeId, nullable);
