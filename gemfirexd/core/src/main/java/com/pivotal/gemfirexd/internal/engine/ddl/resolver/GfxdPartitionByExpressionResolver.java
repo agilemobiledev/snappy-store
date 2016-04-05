@@ -764,11 +764,9 @@ public final class GfxdPartitionByExpressionResolver extends
     }
     if (this.isSubSetOfPrimary) {
       if (gfkey == null) { // generated key case
-        System.out.println(" Calling my hash9");
         routingObject = getGeneratedKeyRoutingObject(key);
       }
       else if (this.requiresSerializedHash) {
-        System.out.println(" Calling my hash****");
         assert this.exprCompiler == null;
         // calculate hashCode directly from serialized bytes
         final RowFormatter rf;
