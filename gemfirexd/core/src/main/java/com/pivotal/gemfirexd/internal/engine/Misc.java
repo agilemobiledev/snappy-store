@@ -637,7 +637,7 @@ public abstract class Misc {
     return hash;
   }
 
-  public static int getHashCodeSnappy(DataValueDescriptor dvd) {
+  public static int getUnifiedHashCodeFromDVD(DataValueDescriptor dvd) {
     StoreCallbacks callback = CallbackFactoryProvider.getStoreCallbacks();
     int hash = 0;
     if (dvd != null) {
@@ -646,7 +646,7 @@ public abstract class Misc {
     return hash;
   }
 
-  public static int getHashCodeSnappy(DataValueDescriptor[] dvds) {
+  public static int getUnifiedHashCodeFromDVD(DataValueDescriptor[] dvds) {
     StoreCallbacks callback = CallbackFactoryProvider.getStoreCallbacks();
     int hash = 0;
     if (dvds != null) {

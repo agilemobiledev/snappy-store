@@ -93,6 +93,8 @@ public final class GfxdPartitionByExpressionResolver extends
 
   private boolean requiresSerializedHash;
 
+  private boolean customHashing;
+
   /**
    * this stores the partitioning columns in the same order as given in the
    * partition by clause; can be used to check for compatible types with a
@@ -118,7 +120,7 @@ public final class GfxdPartitionByExpressionResolver extends
   }
 
   public GfxdPartitionByExpressionResolver(ValueNode node) {
-    if (node instanceof ColumnReference && !snappyStore) {
+    if (node instanceof ColumnReference) {
       String columnName = ((ColumnReference)node).getColumnName();
       this.partColsOrigOrder = new String[1];
       this.partColsOrigOrder[0] = columnName;
@@ -241,6 +243,10 @@ public final class GfxdPartitionByExpressionResolver extends
     else {
       return false;
     }
+  }
+
+  public void setCustomHashing(boolean input){
+    this.customHashing = input;
   }
 
   private void setPrimaryColumnNames(Collection<String> pkColumnNames) {
@@ -398,13 +404,13 @@ public final class GfxdPartitionByExpressionResolver extends
       // if there is a parent, then use its policy to compute routing object
       final String colocatedTable;
       if ((colocatedTable = distDescp.getColocateTableName()) != null) {
-        this.requiresSerializedHash = ((GfxdPartitionByExpressionResolver)
+        this.requiresSerializedHash =  ((GfxdPartitionByExpressionResolver)
             GemFireXDUtils.getResolver((AbstractRegion)Misc.getRegionForTableByPath(
                 colocatedTable, true))).requiresSerializedHash;
       }
       else {
         // in this case we will calculate hash from serialized value during puts
-        this.requiresSerializedHash = true;
+        this.requiresSerializedHash = customHashing ? false : true;
       }
       // update requiresSerializedHash for any child tables (#43628)
       PartitionedRegion pr = (PartitionedRegion)Misc
@@ -462,17 +468,14 @@ public final class GfxdPartitionByExpressionResolver extends
       LanguageConnectionContext lcc) {
     if (this.exprCompiler == null) {
       // case of partitioning by columns
-      return Integer.valueOf(Misc.getHashCodeFromDVD(dvd));
-    }
-    else {
-      // case of partitioning by general expression
-      if(snappyStore){
-        return Integer.valueOf(Misc.getHashCodeSnappy(dvd));
-      }else{
-        return invokeExpressionEvaluator(dvd, null, lcc);
+      if (snappyStore && customHashing) {
+        return Integer.valueOf(Misc.getUnifiedHashCodeFromDVD(dvd));
+      } else {
+        return Integer.valueOf(Misc.getHashCodeFromDVD(dvd));
       }
-
-
+    } else {
+      // case of partitioning by general expression
+      return invokeExpressionEvaluator(dvd, null, lcc);
     }
   }
 
@@ -480,28 +483,25 @@ public final class GfxdPartitionByExpressionResolver extends
       LanguageConnectionContext lcc) {
     if (this.exprCompiler == null) {
       // case of partitioning by some columns or generated primary key
-      int hash = 0;
-      if (dvds.length == 1) {
-        // can be the case of generated primary key
-        hash = Misc.getHashCodeFromDVD(dvds[0]);
-      }
-      else {
-        assert (this.partitionColumnNames.length <= dvds.length);
-        for (int index = 0; index < this.partitionColumnNames.length; ++index) {
-          hash ^= Misc.getHashCodeFromDVD(dvds[index]);
+      if (snappyStore && customHashing) {
+        return Integer.valueOf(Misc.getUnifiedHashCodeFromDVD(dvds));
+      } else {
+        int hash = 0;
+        if (dvds.length == 1) {
+          // can be the case of generated primary key
+          hash = Misc.getHashCodeFromDVD(dvds[0]);
+        } else {
+          assert (this.partitionColumnNames.length <= dvds.length);
+          for (int index = 0; index < this.partitionColumnNames.length; ++index) {
+            hash ^= Misc.getHashCodeFromDVD(dvds[index]);
+          }
         }
+        return Integer.valueOf(hash);
       }
-      return Integer.valueOf(hash);
-    }
-    else {
+
+    } else {
       // case of partitioning by general expression
-      if(snappyStore){
-        return Integer.valueOf(Misc.getHashCodeSnappy(dvds));
-      }else{
-        return invokeExpressionEvaluator(null, dvds, lcc);
-      }
-
-
+      return invokeExpressionEvaluator(null, dvds, lcc);
     }
   }
 

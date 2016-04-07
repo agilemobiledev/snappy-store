@@ -12277,8 +12277,16 @@ partitioningClause(DistributionDefinitionNode distributionNode, boolean[] repPar
 	PartitionResolver tmpprslvr = null;
 }
 {
-	<PARTITION> <BY> 
-	(  
+	<PARTITION> <BY>
+
+  	(
+  	 <HASH>
+  	 {
+  	     distributionNode.setCustomHashing(true);
+  	  }
+  	)?
+	(
+
 	<RANGE>	tmpprslvr = partitionRangeDefinition(distributionNode)
     |
     <LIST>  tmpprslvr = partitionListDefinition(distributionNode)
@@ -12438,10 +12446,12 @@ partitionPKeyOrColumnDefinition(DistributionDefinitionNode distributionNode)
 	GfxdPartitionByExpressionResolver prslvr = null;
 }
 {
+
 	<PRIMARY> <KEY>
 	{
 	    distributionNode.setPolicy(DistributionDescriptor.PARTITIONBYPRIMARYKEY);
 		prslvr = new GfxdPartitionByExpressionResolver();
+		prslvr.setCustomHashing(distributionNode.getCustomHashing());
 		prslvr.setPartitionByPrimaryKey();
 		return prslvr;
 	}
@@ -12463,6 +12473,7 @@ partitionPKeyOrColumnDefinition(DistributionDefinitionNode distributionNode)
     {
         distributionNode.setPolicy(DistributionDescriptor.PARTITIONBYEXPRESSION);
     	prslvr = new GfxdPartitionByExpressionResolver(colNames.toArray());
+    	prslvr.setCustomHashing(distributionNode.getCustomHashing());
     	return prslvr;
     }
 }
