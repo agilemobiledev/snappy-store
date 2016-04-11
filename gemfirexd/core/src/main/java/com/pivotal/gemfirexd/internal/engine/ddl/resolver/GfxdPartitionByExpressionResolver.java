@@ -686,9 +686,6 @@ public final class GfxdPartitionByExpressionResolver extends
       // Minimal check do determine if both have them have expr node at least
       if (this.exprCompiler != null && passed.exprCompiler == null
           || this.exprCompiler == null && passed.exprCompiler != null) {
-        if(snappyStore){ //escaping the check for snappystore.
-          return true;
-        }
         return false;
       }
 
