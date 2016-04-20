@@ -47,7 +47,7 @@ THREADGROUP server
   clientNames  = fcn "hydra.TestConfigFcns.generateNames(\"server\", ${serverHosts}, true)"
                  ncf;
 
-THREADGROUP newDataNodeThreads
+THREADGROUP newstore
    totalThreads = fcn "(${${C}Hosts} * ${${C}VMsPerHost} *  ${${C}ThreadsPerVM}) "
                   ncf
    totalVMs     = fcn "(${${C}Hosts} * ${${C}VMsPerHost})" ncf
@@ -55,10 +55,9 @@ THREADGROUP newDataNodeThreads
                                 ${${C}Hosts}, true)"
                   ncf;
 
-
 INITTASK  taskClass = cacheperf.comparisons.gemfirexd.useCase6.UseCase6Client
           taskMethod = openStatisticsTask
-          threadGroups = locator, server, client
+          threadGroups = locator, server, client, newstore
          ;
 INITTASK  taskClass = cacheperf.comparisons.gemfirexd.useCase6.UseCase6Client
           taskMethod = executeDDLTask
@@ -81,23 +80,18 @@ INITTASK  taskClass = cacheperf.comparisons.gemfirexd.useCase6.UseCase6Client
           ;
 
 INITTASK  taskClass = cacheperf.comparisons.gemfirexd.useCase6.UseCase6Client
-          taskMethod = selectAndUpdateTask
+          taskMethod = generateAndLoadDataTask
           threadGroups = client
+          ;
+
+INITTASK  taskClass = cacheperf.comparisons.gemfirexd.QueryPerfClient
+          taskMethod = rebalanceBucketsTask
+          threadGroups = server
           ;
 
 INITTASK  taskClass = cacheperf.comparisons.gemfirexd.useCase6.UseCase6Client
           taskMethod = selectAndUpdateTask
           threadGroups = client
-          ;
-
-INITTASK  taskClass = cacheperf.comparisons.gemfirexd.QueryPerfClient
-          taskMethod = startFabricServerTask
-          threadGroups = newDataNodeThreads
-          ;
-
-INITTASK  taskClass = cacheperf.comparisons.gemfirexd.QueryPerfClient
-          taskMethod = rebalanceBucketsTask
-          threadGroups = newDataNodeThreads
           ;
 
 INITTASK  taskClass = cacheperf.comparisons.gemfirexd.useCase6.UseCase6Client
@@ -105,9 +99,9 @@ INITTASK  taskClass = cacheperf.comparisons.gemfirexd.useCase6.UseCase6Client
           threadGroups = client
           ;
 
-INITTASK  taskClass = cacheperf.comparisons.gemfirexd.useCase6.UseCase6Client
-          taskMethod = selectAndUpdateTask
-          threadGroups = client
+INITTASK  taskClass = cacheperf.comparisons.gemfirexd.QueryPerfClient
+          taskMethod = rebalanceBucketsTask
+          threadGroups = server
           ;
 
 INITTASK  taskClass = cacheperf.comparisons.gemfirexd.useCase6.UseCase6Client
@@ -115,10 +109,39 @@ INITTASK  taskClass = cacheperf.comparisons.gemfirexd.useCase6.UseCase6Client
           threadGroups = client
           ;
 
+INITTASK  taskClass = cacheperf.comparisons.gemfirexd.useCase6.UseCase6Client
+          taskMethod = generateAndLoadDataTask
+          threadGroups = client
+          ;
+
+INITTASK  taskClass = cacheperf.comparisons.gemfirexd.QueryPerfClient
+          taskMethod = rebalanceBucketsTask
+          threadGroups = server
+          ;
+
+INITTASK  taskClass = cacheperf.comparisons.gemfirexd.useCase6.UseCase6Client
+          taskMethod = selectAndUpdateTask
+          threadGroups = client
+          ;
+
+INITTASK  taskClass = cacheperf.comparisons.gemfirexd.useCase6.UseCase6Client
+          taskMethod = generateAndLoadDataTask
+          threadGroups = client
+          ;
+
+INITTASK  taskClass = cacheperf.comparisons.gemfirexd.QueryPerfClient
+          taskMethod = rebalanceBucketsTask
+          threadGroups = server
+          ;
+
+INITTASK  taskClass = cacheperf.comparisons.gemfirexd.useCase6.UseCase6Client
+          taskMethod = selectAndUpdateTask
+          threadGroups = client
+          ;
 
 CLOSETASK taskClass = cacheperf.comparisons.gemfirexd.QueryPerfClient
           taskMethod = reportTrimIntervalsTask
-          threadGroups = client, server
+          threadGroups = client, server, newstore
           ;
 
 CLOSETASK taskClass = cacheperf.comparisons.gemfirexd.useCase6.UseCase6Client
@@ -128,7 +151,7 @@ CLOSETASK taskClass = cacheperf.comparisons.gemfirexd.useCase6.UseCase6Client
 
 CLOSETASK taskClass = cacheperf.comparisons.gemfirexd.useCase6.UseCase6Client
           taskMethod = closeStatisticsTask
-          threadGroups = server
+          threadGroups = server, newstore
           ;
 
 cacheperf.CachePerfPrms-batchSeconds              = 300;
