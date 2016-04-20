@@ -129,6 +129,7 @@ public class TradeSellOrdersDMLDistTxRRStmt extends
             }
           } catch (TestException te) {
             if (te.getMessage().contains("but got conflict exception") && i < 9) {
+              Log.getLogWriter().info("RR: got conflict, retrying the operations ");
               continue;
             } else throw te;
           }
@@ -268,6 +269,7 @@ public class TradeSellOrdersDMLDistTxRRStmt extends
             else verifyConflictWithBatching(modifiedKeysByOp, modifiedKeysByTx, se, hasSecondary, true);
           } catch (TestException te) {
             if (te.getMessage().contains("but got conflict exception") && i < 9) {
+              Log.getLogWriter().info("RR: got conflict, retrying the operations ");
               continue;
             } else throw te;
           }

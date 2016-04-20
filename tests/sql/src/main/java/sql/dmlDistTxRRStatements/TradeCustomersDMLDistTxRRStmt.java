@@ -95,6 +95,7 @@ public class TradeCustomersDMLDistTxRRStmt extends TradeCustomersDMLDistTxStmt {
             else verifyConflictWithBatching(modifiedKeysByOp, modifiedKeysByTx, se, hasSecondary, true);
           } catch (TestException t) {
             if (t.getMessage().contains("but got conflict exception") && i < 9) {
+              Log.getLogWriter().info("RR: got conflict, retrying the operations ");
               continue;
             }
             else throw t;
@@ -212,6 +213,7 @@ public class TradeCustomersDMLDistTxRRStmt extends TradeCustomersDMLDistTxStmt {
             else verifyConflictWithBatching(modifiedKeysByOp, modifiedKeysByTx, se, hasSecondary, true);
           } catch (TestException t) {
             if (t.getMessage().contains("but got conflict exception") && i < 9) {
+              Log.getLogWriter().info("RR: got conflict, retrying the operations ");
               continue;
             }
             else throw t;

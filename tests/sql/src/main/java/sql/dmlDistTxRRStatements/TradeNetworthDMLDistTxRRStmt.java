@@ -75,6 +75,7 @@ public class TradeNetworthDMLDistTxRRStmt extends TradeNetworthDMLDistTxStmt {
             else verifyConflictWithBatching(modifiedKeysByOp, modifiedKeysByTx, se, hasSecondary, true);
           } catch (TestException t) {
             if (t.getMessage().contains("but got conflict exception") && i < 9) {
+              Log.getLogWriter().info("RR: got conflict, retrying the operations ");
               continue;
             }
             else throw t;
@@ -183,6 +184,7 @@ public class TradeNetworthDMLDistTxRRStmt extends TradeNetworthDMLDistTxStmt {
             else verifyConflictWithBatching(modifiedKeysByOp, modifiedKeysByTx, se, hasSecondary, true);
           } catch (TestException t) {
             if (t.getMessage().contains("but got conflict exception") && i < 9) {
+              Log.getLogWriter().info("RR: got conflict, retrying the operations ");
               continue;
             }
             else throw t;
@@ -212,6 +214,76 @@ public class TradeNetworthDMLDistTxRRStmt extends TradeNetworthDMLDistTxStmt {
       SQLDistTxTest.curTxModifiedKeys.set(modifiedKeysByTx);
     } //add the keys if no SQLException is thrown during the operation
     return true;
+  }
+
+  @SuppressWarnings("unchecked")
+  public boolean deleteGfxd(Connection gConn, boolean withDerby){
+    if (!withDerby) {
+      return deleteGfxdOnly(gConn);
+    }
+
+    int whichDelete = rand.nextInt(delete.length);
+
+    int cid = getExistingCid();
+    int cid1 = getExistingCid();
+    int[] updateCount = new int[1];
+    SQLException gfxdse = null;
+
+    HashMap<String, Integer> modifiedKeysByOp = new HashMap<String, Integer>();
+    HashMap<String, Integer> modifiedKeysByTx = (HashMap<String, Integer>)
+        SQLDistTxTest.curTxModifiedKeys.get();
+    Connection nonTxConn = (Connection)SQLDistTxTest.gfxdNoneTxConn.get();
+
+    try {
+      getKeysForDelete(nonTxConn, modifiedKeysByOp, whichDelete, cid, cid1);
+    } catch (SQLException se) {
+      SQLHelper.printSQLException(se);
+      if (se.getSQLState().equals("X0Z01") && isHATest) { // handles HA issue for #41471
+        Log.getLogWriter().warning("Not able to process the keys for this op due to HA, this insert op does not proceed");
+        return true; //not able to process the keys due to HA, it is a no op
+      } else SQLHelper.handleSQLException(se);
+    }
+
+    for(int i=0; i< 10; i++) {
+      try {
+        Log.getLogWriter().info("RR: deleting "+ i + " times");
+        deleteFromGfxdTable(gConn, cid, cid1, whichDelete, updateCount);
+        break;
+      } catch (SQLException se) {
+        SQLHelper.printSQLException(se);
+        if (se.getSQLState().equalsIgnoreCase("X0Z02")) {
+          try {
+            if (!batchingWithSecondaryData) verifyConflict(modifiedKeysByOp, modifiedKeysByTx, se, true);
+            else verifyConflictWithBatching(modifiedKeysByOp, modifiedKeysByTx, se, hasSecondary, true);
+          } catch (TestException t) {
+            if (t.getMessage().contains("but got conflict exception") && i < 9) {
+              Log.getLogWriter().info("RR: got conflict, retrying the operations ");
+              continue;
+            }
+            else throw t;
+          }
+          return false;
+        } else if (gfxdtxHANotReady && isHATest &&
+            SQLHelper.gotTXNodeFailureException(se)) {
+          SQLHelper.printSQLException(se);
+          Log.getLogWriter().info("got node failure exception during Tx with HA support, continue testing");
+          return false;
+        } else {
+          gfxdse = se; //security testing may get exception
+        }
+      }
+    }
+
+    if (!batchingWithSecondaryData) verifyConflict(modifiedKeysByOp, modifiedKeysByTx, gfxdse, false);
+    else verifyConflictWithBatching(modifiedKeysByOp, modifiedKeysByTx, gfxdse, hasSecondary, false);
+
+    //add this operation for derby
+    addDeleteToDerbyTx(cid, cid1, whichDelete, updateCount[0], gfxdse);
+
+    modifiedKeysByTx.putAll(modifiedKeysByOp);
+    SQLDistTxTest.curTxModifiedKeys.set(modifiedKeysByTx);
+    return true;
+
   }
 
   public boolean queryGfxd(Connection gConn, boolean withDerby){

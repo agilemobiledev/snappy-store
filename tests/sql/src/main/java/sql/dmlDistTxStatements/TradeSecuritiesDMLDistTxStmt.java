@@ -991,7 +991,7 @@ public class TradeSecuritiesDMLDistTxStmt extends TradeSecuritiesDMLStmt
     return stmt;
   }
   
-  private int getWhichDelete(int index) {
+  protected int getWhichDelete(int index) {
     if (index == 1 && !(Boolean)SQLDistTxTest.commitEarly.get()) {
       index = 0; 
     } 
@@ -999,7 +999,7 @@ public class TradeSecuritiesDMLDistTxStmt extends TradeSecuritiesDMLStmt
   }
   //gConn, modifiedKeysByOp, sec_id, symbol, exchange, expectConflict
   @SuppressWarnings("unchecked")
-  private void getKeysForDelete(Connection conn, HashMap<String, Integer > keys, 
+  protected void getKeysForDelete(Connection conn, HashMap<String, Integer > keys,
       int whichDelete, int sec_id, String symbol, String exchange, 
       int tid, boolean[] expectConflict) throws SQLException {
      String sql = null;

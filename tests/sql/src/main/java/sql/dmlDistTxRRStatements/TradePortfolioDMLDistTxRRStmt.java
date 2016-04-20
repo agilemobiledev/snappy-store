@@ -137,6 +137,7 @@ public class TradePortfolioDMLDistTxRRStmt extends TradePortfolioDMLDistTxStmt {
             }
           } catch (TestException te) {
             if (te.getMessage().contains("but got conflict exception") && i < 9) {
+              Log.getLogWriter().info("RR: got conflict, retrying the operations ");
               continue;
             } else throw te;
           }

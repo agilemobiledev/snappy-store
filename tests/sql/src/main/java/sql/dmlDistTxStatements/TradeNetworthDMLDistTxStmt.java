@@ -658,7 +658,7 @@ public class TradeNetworthDMLDistTxStmt extends TradeNetworthDMLStmt implements
     return rowCount;
   }     
   
-  private void getKeysForDelete(Connection conn, HashMap<String, Integer > keys, 
+  protected void getKeysForDelete(Connection conn, HashMap<String, Integer > keys,
       int whichDelete, int cid, int cid1) throws SQLException {
      String sql = null;
      int txId = (Integer) SQLDistTxTest.curTxId.get();

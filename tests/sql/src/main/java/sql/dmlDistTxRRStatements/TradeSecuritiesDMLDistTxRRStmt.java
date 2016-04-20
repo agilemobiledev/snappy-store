@@ -40,6 +40,7 @@ import sql.sqlTx.SQLDistTxTest;
 import sql.sqlTx.SQLTxRRReadBB;
 import sql.sqlutil.ResultSetHelper;
 import util.TestException;
+import util.TestHelper;
 
 public class TradeSecuritiesDMLDistTxRRStmt extends
     TradeSecuritiesDMLDistTxStmt {
@@ -102,6 +103,7 @@ public class TradeSecuritiesDMLDistTxRRStmt extends
           }
           catch(TestException te){
             if (te.getMessage().contains("but got conflict exception") && i < 9) {
+              Log.getLogWriter().info("RR: got conflict, retrying the operations ");
               continue;
             }
             else throw te;
@@ -281,6 +283,7 @@ public class TradeSecuritiesDMLDistTxRRStmt extends
             }
             catch(TestException te){
               if (te.getMessage().contains("but got conflict exception") && i < 9) {
+                Log.getLogWriter().info("RR: got conflict, retrying the operations ");
                 continue;
               }
               else throw te;
@@ -309,6 +312,151 @@ public class TradeSecuritiesDMLDistTxRRStmt extends
       modifiedKeysByTx.putAll(modifiedKeysByOp);
       SQLDistTxTest.curTxModifiedKeys.set(modifiedKeysByTx);
     } //add the keys if no SQLException is thrown during the operation
+    return true;
+  }
+
+  @SuppressWarnings("unchecked")
+  @Override
+  public boolean deleteGfxd(Connection gConn, boolean withDerby) {
+    if (!withDerby) {
+      return deleteGfxdOnly(gConn);
+    }
+    int whichDelete = rand.nextInt(delete.length);
+    whichDelete = getWhichDelete(whichDelete);
+    int minLen = 2;
+    int maxLen = 3;
+    String symbol = getSymbol(minLen, maxLen) + '%';
+    String exchange = getExchange();
+    int[] sec_id = new int[1];
+    int[] updateCount = new int[1];
+    boolean[] expectConflict = new boolean[1];
+    int tid = getMyTid();
+    Connection nonTxConn = (Connection)SQLDistTxTest.gfxdNoneTxConn.get();
+    SQLException gfxdse = null;
+    getExistingSidFromSecurities(nonTxConn, sec_id);
+
+    HashMap<String, Integer> modifiedKeysByOp = new HashMap<String, Integer>();
+    try {
+      getKeysForDelete(nonTxConn, modifiedKeysByOp, whichDelete, sec_id[0], symbol,
+          exchange, tid, expectConflict); //track foreign key constraints and key conflict
+
+      /* no longer needed as foreign key lock check will be check at
+       * the commit time or a later op time when batching is enabled
+      if (batchingWithSecondaryData && expectConflict[0] == true) {
+        SQLDistTxTest.expectForeignKeyConflictWithBatching.set(expectConflict[0]);
+        //TODO need to think a better way when #43170 is fixed -- which foreign keys (range keys) are held
+        //and by which threads need to be tracked and verified.
+      }
+      */
+    } catch (SQLException se) {
+      if (se.getSQLState().equals("X0Z01") && isHATest) { // handles HA issue for #41471
+        Log.getLogWriter().warning("Not able to process the keys for this op due to HA, this insert op does not proceed");
+        return true; //not able to process the keys due to HA, it is a no op
+      } else SQLHelper.handleSQLException(se);
+    }
+
+    //add modified parent keys to threadlocal
+    if (batchingWithSecondaryData) {
+      HashSet<String> holdParentKeyByThisTx = (HashSet<String>) SQLDistTxTest.parentKeyHeldWithBatching.get();
+      holdParentKeyByThisTx.addAll(modifiedKeysByOp.keySet());
+      SQLDistTxTest.parentKeyHeldWithBatching.set(holdParentKeyByThisTx);
+
+      int txId = (Integer)SQLDistTxTest.curTxId.get();
+      SQLBB.getBB().getSharedMap().put(parentKeyHeldTxid + txId, holdParentKeyByThisTx);
+      //used to track actual parent keys hold by delete/update, work around #42672 & #50070
+    }
+
+    HashMap<String, Integer> modifiedKeysByTx = (HashMap<String, Integer>)
+        SQLDistTxTest.curTxModifiedKeys.get();
+
+    for( int i=0; i< 10; i++) {
+      try {
+        Log.getLogWriter().info("RR: Deleting " + i + " times");
+        deleteFromGfxdTable(gConn, sec_id[0], symbol, exchange, tid, whichDelete, updateCount);
+        break;
+      } catch (SQLException se) {
+        SQLHelper.printSQLException(se);
+        if (se.getSQLState().equalsIgnoreCase("X0Z02")) {
+          if (expectConflict[0]) {
+            Log.getLogWriter().info("got expected conflict exception due to foreign key constraint, continuing testing");  //if conflict caused by foreign key
+          } else {
+            try {
+              if (!batchingWithSecondaryData) verifyConflict(modifiedKeysByOp, modifiedKeysByTx, se, true);
+              else verifyConflictWithBatching(modifiedKeysByOp, modifiedKeysByTx, se, hasSecondary, true);
+            } catch (TestException te) {
+              if (te.getMessage().contains("but got conflict exception") && i < 9) {
+                Log.getLogWriter().info("Got conflict exception, retrying the op");
+                continue;
+              } else throw te;
+            }
+            //check if conflict caused by multiple inserts on the same keys
+          }
+          for (String key : modifiedKeysByOp.keySet()) {
+            Log.getLogWriter().info("key is " + key);
+            if (!key.contains("unique")) {
+              int sid = Integer.parseInt(key.substring(key.indexOf("_") + 1));
+              removeWholeRangeForeignKeys(sid);
+              if (batchingWithSecondaryData) cleanUpFKHolds(); //got the exception, ops are rolled back due to #43170
+            }
+          }
+          return false;
+        } else if (SQLHelper.gotTXNodeFailureException(se)) {
+          if (gfxdtxHANotReady && isHATest) {
+            SQLHelper.printSQLException(se);
+            Log.getLogWriter().info("got node failure exception during Tx with HA support, continue testing");
+
+            for (String key : modifiedKeysByOp.keySet()) {
+              Log.getLogWriter().info("key is " + key);
+              if (!key.contains("unique")) {
+                int sid = Integer.parseInt(key.substring(key.indexOf("_") + 1));
+                removeWholeRangeForeignKeys(sid);
+                if (batchingWithSecondaryData) cleanUpFKHolds(); //got the exception, ops are rolled back due to #43170
+              }
+            }
+
+            return false;
+          } else throw new TestException("got node failure exception in a non HA test" + TestHelper.getStackTrace(se));
+        } else {
+          if (expectConflict[0] && !se.getSQLState().equals("23503")) {
+            if (!batchingWithSecondaryData)
+              throw new TestException("expect conflict exceptions, but did not get it" +
+                  TestHelper.getStackTrace(se));
+            else {
+              //do nothing, as foreign key check may only be done on local node, conflict could be detected at commit time
+              ;
+            }
+          }
+          gfxdse = se;
+          for (String key : modifiedKeysByOp.keySet()) {
+            if (key != null && !key.contains("_unique_")) {
+              String s = key.substring(key.indexOf("_") + 1);
+              int sid = Integer.parseInt(s);
+              removeWholeRangeForeignKeys(sid); //operation failed, does not hold foreign key
+              if (batchingWithSecondaryData) cleanUpFKHolds(); //got the exception, ops are rolled back due to #43170
+            }
+          }
+        }
+      }
+    }
+
+    if (!batchingWithSecondaryData) verifyConflict(modifiedKeysByOp, modifiedKeysByTx, gfxdse, false);
+    else verifyConflictWithBatching(modifiedKeysByOp, modifiedKeysByTx, gfxdse, hasSecondary, false);
+
+    if (expectConflict[0] && gfxdse == null) {
+      if (!batchingWithSecondaryData)
+        throw new TestException("Did not get conflict exception for foreign key check. " +
+            "Please check for logs");
+      else {
+        //do nothing, as foreign key check may only be done on local node, conflict could be detected at commit time
+        ;
+      }
+    }
+    //add this operation for derby
+    addDeleteToDerbyTx(sec_id[0], symbol, exchange, tid,
+        whichDelete, updateCount[0], gfxdse);
+
+    modifiedKeysByTx.putAll(modifiedKeysByOp);
+    SQLDistTxTest.curTxModifiedKeys.set(modifiedKeysByTx);
     return true;
   }
 
