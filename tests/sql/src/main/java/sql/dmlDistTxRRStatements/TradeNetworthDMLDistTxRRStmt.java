@@ -23,7 +23,6 @@ import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.SQLTransactionRollbackException;
 import java.util.HashMap;
 import java.util.List;
 
@@ -344,7 +343,7 @@ public class TradeNetworthDMLDistTxRRStmt extends TradeNetworthDMLDistTxStmt {
         addQueryToDerbyTx(whichQuery, queryCash, querySec, loanLimit, loanAmount,
             tid, gfxdList, gfxdse);
       } catch (TestException te) {
-        if (te.getCause() instanceof SQLTransactionRollbackException && (i <= 9)) {
+        if (te.getMessage().contains("Conflict detected in transaction operation and it will abort") && (i <=9)) {
           Log.getLogWriter().info("RR: Retrying the query as we got conflicts");
           continue;
         } else throw te;

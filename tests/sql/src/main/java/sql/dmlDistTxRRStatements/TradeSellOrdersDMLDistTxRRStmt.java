@@ -419,7 +419,7 @@ public class TradeSellOrdersDMLDistTxRRStmt extends
           else
             throw new TestException("gfxd query returns null and not a HA test");
         } catch (TestException te) {
-          if (te.getCause() instanceof SQLTransactionRollbackException && (i <=9)) {
+          if (te.getMessage().contains("Conflict detected in transaction operation and it will abort") && (i <=9)) {
             Log.getLogWriter().info("RR: Retrying the query as we got conflicts");
             continue;
           } else throw te;

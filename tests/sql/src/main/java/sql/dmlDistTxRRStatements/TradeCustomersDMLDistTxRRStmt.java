@@ -23,7 +23,6 @@ import java.sql.Connection;
 import java.sql.Date;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.SQLTransactionRollbackException;
 import java.util.HashMap;
 import java.util.List;
 
@@ -298,7 +297,7 @@ public class TradeCustomersDMLDistTxRRStmt extends TradeCustomersDMLDistTxStmt {
         //only the first thread to commit the tx in this round could verify results
         //this is handled in the SQLDistTxTest doDMLOp
       } catch (TestException te) {
-        if (te.getCause() instanceof SQLTransactionRollbackException && (i <=9)) {
+        if (te.getMessage().contains("Conflict detected in transaction operation and it will abort") && (i <=9)) {
           Log.getLogWriter().info("RR: Retrying the query as we got conflicts");
           continue;
         } else throw te;
