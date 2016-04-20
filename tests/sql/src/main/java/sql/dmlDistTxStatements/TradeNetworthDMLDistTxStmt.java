@@ -469,7 +469,7 @@ public class TradeNetworthDMLDistTxStmt extends TradeNetworthDMLStmt implements
     }
   }
   
-  private int getWhichUpdate(int index) {
+  protected int getWhichUpdate(int index) {
     //only perform update statement for non unique keys
     if (index < update.length/2) index += update.length/2;
     

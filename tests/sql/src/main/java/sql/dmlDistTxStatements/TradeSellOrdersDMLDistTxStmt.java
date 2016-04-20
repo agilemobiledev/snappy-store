@@ -620,7 +620,7 @@ public class TradeSellOrdersDMLDistTxStmt extends TradeSellOrdersDMLStmt
   }
   
   @SuppressWarnings("unchecked")
-  private void getKeysForInsert(Connection conn, int cid, int sid, boolean[] expectConflict, HashSet<String> parentKeys)
+  protected void getKeysForInsert(Connection conn, int cid, int sid, boolean[] expectConflict, HashSet<String> parentKeys)
     throws SQLException {
      String sql = null;
      ResultSet rs = null;

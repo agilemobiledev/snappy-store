@@ -25,6 +25,7 @@ import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 
 import com.gemstone.gemfire.cache.query.Struct;
@@ -54,6 +55,262 @@ public class TradeSecuritiesDMLDistTxRRStmt extends
         };
   */
   protected static boolean reproduce39455 = TestConfig.tab().booleanAt(SQLPrms.toReproduce39455, false);
+
+
+  @SuppressWarnings("unchecked")
+  @Override
+  public boolean insertGfxd(Connection gConn, boolean withDerby) {
+    if (!withDerby) {
+      return insertGfxdOnly(gConn);
+    }
+    int size = 1;
+    int[] sec_id = new int[size];
+    String[] symbol = new String[size];
+    String[] exchange = new String[size];
+    BigDecimal[] price = new BigDecimal[size];
+    int[] updateCount = new int[size];
+    SQLException gfxdse = null;
+
+    getDataForInsert(sec_id, symbol, exchange, price, size); //get the data
+    HashMap<String, Integer> modifiedKeysByOp = new HashMap<String, Integer>();
+    modifiedKeysByOp.put(getTableName()+"_"+sec_id[0], (Integer)SQLDistTxTest.curTxId.get());
+
+    //when two tx insert/update could lead to unique key constraint violation,
+    //only one tx could hold the unique key lock
+
+    //if unique key already exists, committed prior to this round, it should get
+    //unique key constraint violation, not conflict or lock not held exception
+    modifiedKeysByOp.put(getTableName()+"_unique_"+symbol[0] + "_" + exchange[0],
+        (Integer)SQLDistTxTest.curTxId.get());
+    Log.getLogWriter().info("gemfirexd - TXID:" + (Integer)SQLDistTxTest.curTxId.get()+ " need to hold the unique key "
+        + getTableName()+"_unique_"+symbol[0] + "_" + exchange[0]);
+
+    HashMap<String, Integer> modifiedKeysByTx = (HashMap<String, Integer>)
+        SQLDistTxTest.curTxModifiedKeys.get(); //no need to check fk, as securities is a parent table
+
+    for( int i=0; i< 10; i++) {
+      try {
+        Log.getLogWriter().info("RR: Inserting " + i + " times.");
+        insertToGfxdTable(gConn, sec_id, symbol, exchange, price, updateCount, size);
+        break;
+      } catch (SQLException se) {
+        SQLHelper.printSQLException(se);
+        if (se.getSQLState().equalsIgnoreCase("X0Z02")) {
+          try {
+            if (!batchingWithSecondaryData) verifyConflict(modifiedKeysByOp, modifiedKeysByTx, se, true);
+            else verifyConflictWithBatching(modifiedKeysByOp, modifiedKeysByTx, se, hasSecondary, true);
+          }
+          catch(TestException te){
+            if (te.getMessage().contains("but got conflict exception") && i < 9) {
+              continue;
+            }
+            else throw te;
+          }
+          return false;
+        } else if (gfxdtxHANotReady && isHATest &&
+            SQLHelper.gotTXNodeFailureException(se)) {
+          SQLHelper.printSQLException(se);
+          Log.getLogWriter().info("gemfirexd - TXID:" + (Integer)SQLDistTxTest.curTxId.get() + " got node failure exception during Tx with HA support, continue testing");
+          return false;
+        } else {
+          gfxdse = se;
+        }
+      }
+    }
+
+    if (!batchingWithSecondaryData) verifyConflict(modifiedKeysByOp, modifiedKeysByTx, gfxdse, false);
+    else verifyConflictWithBatching(modifiedKeysByOp, modifiedKeysByTx, gfxdse, hasSecondary, false);
+
+    //add this operation for derby
+    addInsertToDerbyTx(sec_id, symbol, exchange, price, updateCount, gfxdse);
+
+    modifiedKeysByTx.putAll(modifiedKeysByOp);
+    SQLDistTxTest.curTxModifiedKeys.set(modifiedKeysByTx);
+    return true;
+  }
+
+  @SuppressWarnings("unchecked")
+  @Override
+  public boolean updateGfxd(Connection gConn, boolean withDerby) {
+    if (!withDerby) {
+      return updateGfxdOnly(gConn);
+    }
+    int whichUpdate= getWhichUpdate(rand.nextInt(update.length));
+    int size = 1;
+    int[] sec_id = new int[size];
+    String[] symbol = new String[size];
+    String[] exchange = new String[size];
+    BigDecimal[] price = new BigDecimal[size];
+    String[] lowEnd = new String[size];
+    String[] highEnd = new String[size];
+    Connection nonTxConn = (Connection)SQLDistTxTest.gfxdNoneTxConn.get();
+
+    boolean[] expectConflict = new boolean[1];
+
+    getDataForUpdate(gConn, sec_id, symbol, exchange, price, size); //get the data
+    for (int i = 0 ; i <size ; i++) {
+      sec_id[i]= getExistingSid(); //to avoid phantom read
+    }
+    getSidForTx(nonTxConn, sec_id);
+    getAdditionalUpdateData(lowEnd, highEnd);
+
+    getExistingSidFromSecurities(nonTxConn, sec_id); //any sec_id already committed
+    if (isHATest && sec_id[0] == 0) {
+      Log.getLogWriter().info("gemfirexd - TXID:" + (Integer)SQLDistTxTest.curTxId.get()  + "could not get valid sec_id, abort this op");
+      return true;
+    }
+    int[] updateCount = new int[size];
+    SQLException gfxdse = null;
+
+    int txId = (Integer)SQLDistTxTest.curTxId.get();
+
+    //TODO, need to consider the following configuration: isWanTest && !isSingleSitePublisher
+    HashMap<String, Integer> modifiedKeysByOp = new HashMap<String, Integer>();
+    HashMap<String, Integer> modifiedKeysByTx = (HashMap<String, Integer>)
+        SQLDistTxTest.curTxModifiedKeys.get();
+
+    /* handled in actual dml op instead
+    if (SQLTest.testPartitionBy) {
+      PreparedStatement stmt = getCorrectTxStmt(gConn, whichUpdate);
+      if (stmt == null) {
+        if (SQLTest.isEdge && isHATest && !isTicket48176Fixed &&
+            batchingWithSecondaryData &&(Boolean) SQLDistTxTest.failedToGetStmtNodeFailure.get()) {
+          SQLDistTxTest.failedToGetStmtNodeFailure.set(false);
+          return false; //due to node failure, need to rollback tx
+        }
+        else return true; //due to unsupported exception
+      }
+    }
+    */
+
+    try {
+      getKeysForUpdate(nonTxConn, modifiedKeysByOp, whichUpdate,
+          sec_id[0], lowEnd[0], highEnd[0], expectConflict);
+
+      /* tracked in batching fk bb now
+      if (batchingWithSecondaryData && expectConflict[0] == true) {
+        SQLDistTxTest.expectForeignKeyConflictWithBatching.set(expectConflict[0]);
+        //TODO need to think a better way when #43170 is fixed -- which foreign keys (range keys) are held
+        //and by which threads need to be tracked and verified.
+      }
+      */
+    } catch (SQLException se) {
+      if (se.getSQLState().equals("X0Z01") && isHATest) { // handles HA issue for #41471
+        Log.getLogWriter().warning("Not able to process the keys for this op due to HA, this insert op does not proceed");
+        return true; //not able to process the keys due to HA, it is a no op
+      } else SQLHelper.handleSQLException(se);
+    }
+    //when two tx insert/update could lead to unique key constraint violation,
+    //only one tx could hold the unique key lock
+
+    //if unique key already exists, committed prior to this round, it should get
+    //unique key constraint violation, not conflict or lock not held exception
+    if (whichUpdate == 2) {
+      //"update trade.securities set symbol = ?, exchange =? where sec_id = ?",
+      //add the unique key going to be held
+      modifiedKeysByOp.put(getTableName()+"_unique_"+symbol[0] + "_" + exchange[0],
+          txId);
+      Log.getLogWriter().info("need to hold the unique key "
+          + getTableName()+"_unique_"+symbol[0] + "_" + exchange[0]);
+      //should also hold the lock for the current unique key as well.
+      //using the current gConn, so the read will reflect the modification within tx as well
+
+      //TODO may need to reconsider this for RR case after #43170 is fixed -- it is
+      //possible an update failed due to unique key violation and does not rollback
+      //the previous operations and the RR read lock on the key may cause commit issue
+      //may need to add to the RR read locked keys once #43170 is fixed.
+      try {
+        String sql = "select symbol, exchange from trade.securities where sec_id = " + sec_id[0];
+        ResultSet rs = nonTxConn.createStatement().executeQuery(sql);
+        if (rs.next()) {
+          String symbolKey = rs.getString("SYMBOL");
+          String exchangeKey = rs.getString("EXCHANGE");
+          Log.getLogWriter().info("gemfirexd - TXID:" + (Integer)SQLDistTxTest.curTxId.get()+ " should hold the unique key "
+              + getTableName()+"_unique_"+symbolKey+"_"+exchangeKey);
+          modifiedKeysByOp.put(getTableName()+"_unique_"+symbolKey+"_"+exchangeKey, txId);
+        }
+        rs.close();
+      } catch (SQLException se) {
+        if (!SQLHelper.checkGFXDException(gConn, se)) {
+          Log.getLogWriter().info("gemfirexd - TXID:" + (Integer)SQLDistTxTest.curTxId.get()+ "node failure in HA test, abort this operation");
+          return false;
+        } else SQLHelper.handleSQLException(se);
+      }
+    }
+
+    //update will hold the keys to track foreign key constraint conflict
+    if (batchingWithSecondaryData && !ticket42672fixed && isSecuritiesPartitionedOnPKOrReplicate()) {
+      HashSet<String> holdParentKeyByThisTx = (HashSet<String>) SQLDistTxTest.parentKeyHeldWithBatching.get();
+      holdParentKeyByThisTx.addAll(modifiedKeysByOp.keySet());
+      SQLDistTxTest.parentKeyHeldWithBatching.set(holdParentKeyByThisTx);
+
+      SQLBB.getBB().getSharedMap().put(parentKeyHeldTxid + txId, holdParentKeyByThisTx);
+      //used to track actual parent keys hold by update, work around #42672 & #50070
+    }
+
+    for (int i=0; i< 10; i++) {
+      try {
+        Log.getLogWriter().info("RR: Updating " + i + " times.");
+        updateGfxdTable(gConn, sec_id, symbol, exchange, price,
+            lowEnd, highEnd, whichUpdate, updateCount, size);
+
+        //handles get stmt failure conditions -- node failure or unsupported update on partition field
+        if (isHATest && (Boolean)SQLDistTxTest.failedToGetStmtNodeFailure.get()) {
+          SQLDistTxTest.failedToGetStmtNodeFailure.set(false); //reset flag
+          return false; //due to node failure, assume txn rolled back
+        }
+        if ((Boolean)SQLDistTxTest.updateOnPartitionCol.get()) {
+          SQLDistTxTest.updateOnPartitionCol.set(false); //reset flag
+          return true; //assume 0A000 exception does not cause txn to rollback,
+        }
+
+        if (expectConflict[0] && !batchingWithSecondaryData) {
+          throw new TestException("expected to get conflict exception due to foreign key constraint, but does not." +
+              " Please check the logs for more information");
+        }
+        break;
+      } catch (SQLException se) {
+        SQLHelper.printSQLException(se);
+        if (se.getSQLState().equalsIgnoreCase("X0Z02")) {
+          if (expectConflict[0]) {
+            Log.getLogWriter().info("got conflict exception due to #42672, continuing testing"); //if conflict caused by foreign key, this is a workaround due to #42672
+          } else {
+            try {
+              if (!batchingWithSecondaryData) verifyConflict(modifiedKeysByOp, modifiedKeysByTx, se, true);
+              else verifyConflictWithBatching(modifiedKeysByOp, modifiedKeysByTx, se, hasSecondary, true);
+            }
+            catch(TestException te){
+              if (te.getMessage().contains("but got conflict exception") && i < 9) {
+                continue;
+              }
+              else throw te;
+            }
+          }
+          return false;
+        } else if (gfxdtxHANotReady && isHATest &&
+            SQLHelper.gotTXNodeFailureException(se)) {
+          SQLHelper.printSQLException(se);
+          Log.getLogWriter().info("gemfirexd - TXID:" + (Integer)SQLDistTxTest.curTxId.get() + "got node failure exception during Tx with HA support, continue testing");
+          return false;
+        } else {
+          gfxdse = se;
+        }
+      }
+    }
+
+    if (!batchingWithSecondaryData) verifyConflict(modifiedKeysByOp, modifiedKeysByTx, gfxdse, false);
+    else verifyConflictWithBatching(modifiedKeysByOp, modifiedKeysByTx, gfxdse, hasSecondary, false);
+
+    //add this operation for derby
+    addUpdateToDerbyTx(sec_id, symbol, exchange, price,
+        lowEnd, highEnd, whichUpdate, updateCount, gfxdse);
+
+    if (gfxdse == null) {
+      modifiedKeysByTx.putAll(modifiedKeysByOp);
+      SQLDistTxTest.curTxModifiedKeys.set(modifiedKeysByTx);
+    } //add the keys if no SQLException is thrown during the operation
+    return true;
+  }
 
   protected boolean verifyConflict(HashMap<String, Integer> modifiedKeysByOp, 
       HashMap<String, Integer>modifiedKeysByThisTx, SQLException gfxdse,

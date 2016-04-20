@@ -595,7 +595,7 @@ public class TradeCustomersDMLDistTxStmt extends TradeCustomersDMLStmt
     
   }
   
-  private int getWhichUpdate(int index) {
+  protected int getWhichUpdate(int index) {
     //separate which one could update certain statement
     if ((Boolean)SQLDistTxTest.commitEarly.get()) {
       index = 4; 

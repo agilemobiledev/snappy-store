@@ -24,6 +24,7 @@ import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 
 import com.gemstone.gemfire.cache.query.Struct;
@@ -34,9 +35,11 @@ import sql.dmlDistTxStatements.TradePortfolioDMLDistTxStmt;
 import sql.sqlTx.ReadLockedKey;
 import sql.sqlTx.SQLDistRRTxTest;
 import sql.sqlTx.SQLDistTxTest;
+import sql.sqlTx.SQLTxBatchingFKBB;
 import sql.sqlTx.SQLTxRRReadBB;
 import sql.sqlutil.ResultSetHelper;
 import util.TestException;
+import util.TestHelper;
 
 public class TradePortfolioDMLDistTxRRStmt extends TradePortfolioDMLDistTxStmt {
   /*
@@ -54,6 +57,142 @@ public class TradePortfolioDMLDistTxRRStmt extends TradePortfolioDMLDistTxStmt {
       "select * from trade.portfolio where sid =? and cid=?"
       };
   */
+
+  @SuppressWarnings("unchecked")
+  @Override
+  public boolean insertGfxd(Connection gConn, boolean withDerby) {
+    if (!withDerby) {
+      return insertGfxdOnly(gConn);
+
+    }
+    int size = 1;
+    int[] cid = new int[size];
+    int[] sid = new int[size];
+    int[] qty = new int[size];
+    BigDecimal[] sub = new BigDecimal[size];
+    BigDecimal[] price = new BigDecimal[size];
+    int[] updateCount = new int[size];
+    boolean[] expectConflict = new boolean[1];
+    Connection nonTxConn = (Connection)SQLDistTxTest.gfxdNoneTxConn.get();
+    SQLException gfxdse = null;
+
+    getExistingCidFromCustomers(nonTxConn, cid);
+    getDataFromResultSet(nonTxConn, sid, qty, sub, price, size); //get the data
+    int chance = 200;
+    if (rand.nextInt(chance) == 0) cid[0] = 0;
+    else if (rand.nextInt(chance) == 0) sid[0] = 0;
+
+    HashMap<String, Integer> modifiedKeysByOp = new HashMap<String, Integer>();
+    HashSet<String> parentKeysHold = new HashSet<String>();
+    try {
+      getKeysForInsert(nonTxConn, modifiedKeysByOp, cid[0], sid[0], expectConflict, parentKeysHold);
+      /* using batching fk bb now
+      if (batchingWithSecondaryData && expectConflict[0] == true) {
+        SQLDistTxTest.expectForeignKeyConflictWithBatching.set(expectConflict[0]);
+        //TODO need to think a better way when #43170 is fixed -- which foreign keys (range keys) are held
+        //and by which threads need to be tracked and verified.
+      }
+      */
+    } catch (SQLException se) {
+      if (se.getSQLState().equals("X0Z01") && isHATest) { // handles HA issue for #41471
+        Log.getLogWriter().warning("Not able to process the keys for this op due to HA, this insert op does not proceed");
+        return true; //not able to process the keys due to HA, it is a no op
+      } else SQLHelper.handleSQLException(se);
+    }
+
+    if (batchingWithSecondaryData) {
+      //add to fk bb for the fk key hold due to insert into child table
+      HashSet<String> holdFKsByThisTx = (HashSet<String>) SQLDistTxTest.foreignKeyHeldWithBatching.get();
+      holdFKsByThisTx.addAll(parentKeysHold);
+      SQLDistTxTest.foreignKeyHeldWithBatching.set(holdFKsByThisTx);
+
+      hydra.blackboard.SharedMap holdingFKTxIds = SQLTxBatchingFKBB.getBB().getSharedMap();
+      Integer myTxId = (Integer) SQLDistTxTest.curTxId.get();
+      for (String key: parentKeysHold) {
+        HashSet<Integer> txIds = (HashSet<Integer>) holdingFKTxIds.get(key);
+        if (txIds == null) txIds = new HashSet<Integer>();
+        txIds.add(myTxId);
+        holdingFKTxIds.put(key, txIds);
+      }
+    }
+
+    HashMap<String, Integer> modifiedKeysByTx = (HashMap<String, Integer>)
+        SQLDistTxTest.curTxModifiedKeys.get();
+
+    for(int i=0; i< 10; i++) {
+      try {
+        Log.getLogWriter().info("RR: Inserting " + i + " times.");
+        insertToGfxdTable(gConn, cid, sid, qty, sub, updateCount, size);
+        break;
+      } catch (SQLException se) {
+        SQLHelper.printSQLException(se);
+        if (se.getSQLState().equalsIgnoreCase("X0Z02")) {
+          try {
+            if (expectConflict[0]) {
+              ; //if conflict caused by foreign key
+            } else {
+              if (!batchingWithSecondaryData) verifyConflict(modifiedKeysByOp, modifiedKeysByTx, se, true);
+              else verifyConflictWithBatching(modifiedKeysByOp, modifiedKeysByTx, se, hasSecondary, true);
+              //check if conflict caused by multiple inserts on the same keys
+            }
+          } catch (TestException te) {
+            if (te.getMessage().contains("but got conflict exception") && i < 9) {
+              continue;
+            } else throw te;
+          }
+
+          if (batchingWithSecondaryData) cleanUpFKHolds(); //got the exception, ops are rolled back due to #43170
+          removePartialRangeForeignKeys(cid, sid);
+          return false;
+        } else if (gfxdtxHANotReady && isHATest &&
+            SQLHelper.gotTXNodeFailureException(se)) {
+          SQLHelper.printSQLException(se);
+          Log.getLogWriter().info("got node failure exception during Tx with HA support, continue testing");
+
+          if (batchingWithSecondaryData) cleanUpFKHolds(); //got the exception, ops are rolled back due to #43170
+          removePartialRangeForeignKeys(cid, sid); //operation not successful, remove the fk constraint keys
+
+          return false; //not able to handle node failure yet, needs to rollback ops
+          // to be confirmed if select query could cause lock to be released
+        } else {
+          if (expectConflict[0] && !se.getSQLState().equals("23505")
+              && !se.getSQLState().equals("23503")) {
+            if (!batchingWithSecondaryData)
+              throw new TestException("expect conflict exceptions, but did not get it" +
+                  TestHelper.getStackTrace(se));
+            else {
+              //do nothing, as foreign key check may only be done on local node, conflict could be detected at commit time
+              ;
+            }
+          }
+          gfxdse = se;
+          if (batchingWithSecondaryData) cleanUpFKHolds(); //got the exception, ops are rolled back due to #43170
+          removePartialRangeForeignKeys(cid, sid); //operation not successful, remove the fk constraint keys
+        }
+      }
+    }
+
+    if (!batchingWithSecondaryData) verifyConflict(modifiedKeysByOp, modifiedKeysByTx, gfxdse, false);
+    else verifyConflictWithBatching(modifiedKeysByOp, modifiedKeysByTx, gfxdse, hasSecondary, false);
+
+    if (expectConflict[0] && gfxdse == null) {
+      if (!batchingWithSecondaryData)
+        throw new TestException("Did not get conflict exception for foreign key check. " +
+            "Please check for logs");
+      else {
+        //do nothing, as foreign key check may only be done on local node, conflict could be detected at commit time
+        ;
+      }
+    }
+
+    //add this operation also for derby
+    if (withDerby) addInsertToDerbyTx(cid, sid, qty, sub, updateCount, gfxdse);
+
+    modifiedKeysByTx.putAll(modifiedKeysByOp);
+    SQLDistTxTest.curTxModifiedKeys.set(modifiedKeysByTx);
+
+    return true;
+  }
   
   protected boolean verifyConflict(HashMap<String, Integer> modifiedKeysByOp, 
       HashMap<String, Integer>modifiedKeysByThisTx, SQLException gfxdse,

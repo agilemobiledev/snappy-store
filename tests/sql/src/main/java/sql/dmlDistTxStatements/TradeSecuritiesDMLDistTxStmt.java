@@ -552,7 +552,7 @@ public class TradeSecuritiesDMLDistTxStmt extends TradeSecuritiesDMLStmt
     }
   }
   
-  private int getWhichUpdate(int index) {
+  protected int getWhichUpdate(int index) {
     //separate which one could update certain statement
     if (index == 2 && (Boolean)SQLDistTxTest.commitEarly.get()) {
       index = 3; 
@@ -737,7 +737,7 @@ public class TradeSecuritiesDMLDistTxStmt extends TradeSecuritiesDMLStmt
   }
   
   //returns like "ka" and "kc" 
-  private void getAdditionalUpdateData(String[] lowEnd, String[] highEnd) {
+  protected void getAdditionalUpdateData(String[] lowEnd, String[] highEnd) {
     String firstChar = getSymbol(1, 1);
     String secondChar = getSymbol(1, 1);
     char c = secondChar.charAt(0);
@@ -752,7 +752,7 @@ public class TradeSecuritiesDMLDistTxStmt extends TradeSecuritiesDMLStmt
   }
   
   @SuppressWarnings("unchecked")
-  private void getKeysForUpdate(Connection conn, HashMap<String, Integer > keys, 
+  protected void getKeysForUpdate(Connection conn, HashMap<String, Integer > keys,
       int whichUpdate, int sec_id, String lowEnd, String highEnd, boolean[] expectConflict) throws SQLException {
     String sql = null;
     ResultSet rs = null;
@@ -843,7 +843,7 @@ public class TradeSecuritiesDMLDistTxStmt extends TradeSecuritiesDMLStmt
     }
   }
   
-  private void updateGfxdTable(Connection gConn, int[]sec_id, String[]symbol, 
+  protected void updateGfxdTable(Connection gConn, int[]sec_id, String[]symbol,
       String[]exchange, BigDecimal[]price, String[] lowEnd, String[] highEnd, 
       int whichUpdate, int[] updateCount, int size) throws SQLException {
     PreparedStatement stmt = null;

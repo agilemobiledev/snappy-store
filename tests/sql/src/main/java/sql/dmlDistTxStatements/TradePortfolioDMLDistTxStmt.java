@@ -293,7 +293,7 @@ public class TradePortfolioDMLDistTxStmt extends TradePortfolioDMLStmt
   }
   
   @SuppressWarnings("unchecked")
-  private void getKeysForInsert(Connection conn, HashMap<String, Integer > keys, 
+  protected void getKeysForInsert(Connection conn, HashMap<String, Integer > keys,
      int cid, int sid, boolean[] expectConflict, HashSet<String> parentKeys) throws SQLException {
     String sql = null;
     ResultSet rs = null;
