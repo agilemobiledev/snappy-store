@@ -345,7 +345,20 @@ public class TradeSellOrdersDMLDistTxRRStmt extends
     getStatus(status);
     getAsk(ask);
     if (dConn!=null) getCids(dConn, cid);
-    else getCids(gConn, cid);
+    else {
+      for (int i = 0; i < 10; i++) {
+        Log.getLogWriter().info("RR: executing query(getCids) " + i + "times");
+        try {
+          getCids(gConn, cid);
+        } catch (TestException te) {
+          if (te.getMessage().contains("Conflict detected in transaction operation and it will abort") && (i < 9)) {
+            Log.getLogWriter().info("RR: Retrying the query as we got conflicts");
+            continue;
+          } else throw te;
+        }
+        break;
+      }
+    }
     getOids(oid);
 
     ResultSet discRS = null;

@@ -368,10 +368,21 @@ public class TradePortfolioDMLDistTxRRStmt extends TradePortfolioDMLDistTxStmt {
     int queryAvail = rand.nextInt(avail);
     int sid = 0;
     int cid = 0;
-    int[] key = getKey(gConn);
-    if (key !=null) {
-      sid = key[0];
-      cid = key[1];
+    for (int i = 0; i < 10; i++) {
+      Log.getLogWriter().info("RR: executing query(getKey) " + i + "times");
+      try {
+        int[] key = getKey(gConn);
+        if (key != null) {
+          sid = key[0];
+          cid = key[1];
+        }
+      } catch (TestException te) {
+        if (te.getMessage().contains("Conflict detected in transaction operation and it will abort") && (i < 9)) {
+          Log.getLogWriter().info("RR: Retrying the query as we got conflicts");
+          continue;
+        } else throw te;
+      }
+      break;
     }
 
     int tid = getMyTid();
