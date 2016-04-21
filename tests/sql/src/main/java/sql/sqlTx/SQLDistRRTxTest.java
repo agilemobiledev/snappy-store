@@ -826,7 +826,7 @@ public class SQLDistRRTxTest extends SQLDistTxTest {
             verifyGreen = false; // avoid the case no qualified row in the gfxd
           break;
         } catch (SQLException se) {
-          if (se.getMessage().contains("Conflict detected in transaction operation and it will abort") && i <= 9) {
+          if (se.getMessage().contains("Conflict detected in transaction operation and it will abort") && i < 9) {
             Log.getLogWriter().info("RR: detected conflict , retrying");
             continue;
           }
@@ -849,7 +849,7 @@ public class SQLDistRRTxTest extends SQLDistTxTest {
             verifyYellow = false; // avoid the case no qualified row in the gfxd
           break;
         } catch (SQLException se) {
-          if (se.getMessage().contains("Conflict detected in transaction operation and it will abort") && i <= 9) {
+          if (se.getMessage().contains("Conflict detected in transaction operation and it will abort") && i < 9) {
             Log.getLogWriter().info("RR: detected conflict , retrying");
             continue;
           }
@@ -906,26 +906,37 @@ public class SQLDistRRTxTest extends SQLDistTxTest {
   protected void verifyRRKeys(Connection conn, String sql, int id, int id1) {
     List<Struct> rsList = null;
     List<Struct> rsRepeatList = null;
-    try {
-      PreparedStatement stmt =conn.prepareStatement(sql);
-      Log.getLogWriter().info(sql + " -- id> " + id + " and id< " + id1 );
-      stmt.setInt(1, id);
-      stmt.setInt(2, id1);
-      ResultSet rs = stmt.executeQuery();
-      rsList = ResultSetHelper.asList(rs, false);
-    } catch (SQLException se) {
-      if (isHATest && SQLHelper.gotTXNodeFailureException(se)) {
-        log().info("op failed in gfxd RR tx due to node failure, continuing test");
-      } else if (se.getSQLState().equalsIgnoreCase("X0Z02") && !reproduce49935) {
-        Log.getLogWriter().info("hit #49935, continue for now");
-        return;
+    for (int i = 0; i < 10; i++) {
+      try {
+        Log.getLogWriter().info("RR: executing query(verifyRRKeys) " + i + " times");
+        MasterController.sleepForMs(100);
+        PreparedStatement stmt = conn.prepareStatement(sql);
+        Log.getLogWriter().info(sql + " -- id> " + id + " and id< " + id1);
+        stmt.setInt(1, id);
+        stmt.setInt(2, id1);
+        ResultSet rs = stmt.executeQuery();
+        rsList = ResultSetHelper.asList(rs, false);
+      } catch (SQLException se) {
+        if (isHATest && SQLHelper.gotTXNodeFailureException(se)) {
+          log().info("op failed in gfxd RR tx due to node failure, continuing test");
+        } else if (se.getSQLState().equalsIgnoreCase("X0Z02") && !reproduce49935) {
+          Log.getLogWriter().info("hit #49935, continue for now");
+          return;
+        } else if (se.getSQLState().equalsIgnoreCase("X0Z02") && (i<9)) {
+          Log.getLogWriter().info("RR: Retrying as got Conflict in executing query.");
+          continue;
+        }
+        else SQLHelper.handleSQLException(se);
+      } catch (TestException te) {
+        if (isHATest &&
+            (te.getMessage().contains("40XD0") || te.getMessage().contains("40XD2"))) {
+          Log.getLogWriter().info("got expected node failure exception, continuing test");
+        } else if (te.getMessage().contains(" Conflict detected in transaction operation and it will abort") && (i < 9)) {
+          Log.getLogWriter().info("RR: Retrying as got Conflict in executing query.");
+          continue;
+        } else throw te;
       }
-      else SQLHelper.handleSQLException(se);
-    } catch (TestException te) {
-      if (isHATest &&
-          (te.getMessage().contains("40XD0") || te.getMessage().contains("40XD2"))) {
-        Log.getLogWriter().info ("got expected node failure exception, continuing test");
-      }
+      break;
     }
     if (rsList == null) {
       if (isHATest) {
@@ -941,12 +952,12 @@ public class SQLDistRRTxTest extends SQLDistTxTest {
     Log.getLogWriter().info("sleep for " + sleepMS / 1000 + " sec to check repeatable read keys");
     MasterController.sleepForMs(sleepMS);
 
-    int counter = 10;
-    boolean caughtException = true;
 
-    while (caughtException) {
-      caughtException = false;
+    for (int i = 0; i < 10; i++) {
       try {
+        // Wait for 100 ms before retrying
+        MasterController.sleepForMs(100);
+        Log.getLogWriter().info("RR: executing query " + i + " times");
         PreparedStatement stmt = conn.prepareStatement(sql);
         Log.getLogWriter().info(sql + " id> " + id + " and id< " + id1);
         stmt.setInt(1, id);
@@ -959,41 +970,55 @@ public class SQLDistRRTxTest extends SQLDistTxTest {
         } else if (se.getSQLState().equalsIgnoreCase("X0Z02") && !reproduce49935) {
           Log.getLogWriter().info("hit #49935, continue for now");
           return;
-        } else if (se instanceof SQLTransactionRollbackException && counter > 0) {
-          counter--;
-          caughtException = true;
+        } else if (se instanceof SQLTransactionRollbackException && (i<9)) {
+          Log.getLogWriter().info("RR: Retrying as got Conflict in executing query.");
+          continue;
         } else SQLHelper.handleSQLException(se);
       } catch (TestException te) {
         if (isHATest &&
             (te.getMessage().contains("40XD0") || te.getMessage().contains("40XD2"))) {
           Log.getLogWriter().info("got expected node failure exception, continuing test");
+        } else if (te.getMessage().contains(" Conflict detected in transaction operation and it will abort") && (i <9)) {
+          Log.getLogWriter().info("RR: Retrying as got Conflict in executing query.");
+          continue;
         } else throw te;
+      }
+      break;
+    }
+
+    while (rsRepeatList == null && isHATest) {
+      for (int i = 0; i < 10; i++) {
+        try {
+          PreparedStatement stmt = conn.prepareStatement(sql);
+          Log.getLogWriter().info(sql + " id> " + id + " and id< " + id1);
+          stmt.setInt(1, id);
+          stmt.setInt(2, id1);
+          Log.getLogWriter().info("RR: executing query " + i + " times");
+          ResultSet rs = stmt.executeQuery();
+          rsRepeatList = ResultSetHelper.asList(rs, false);
+        } catch (SQLException se) {
+          if (isHATest && SQLHelper.gotTXNodeFailureException(se)) {
+            //log().info("op failed in gfxd RR tx due to node failure, will try the op, continuing test");
+            log().info("could not retry as no HA support for txn yet");
+            return;
+          } else if (se instanceof SQLTransactionRollbackException && (i < 9)) {
+            Log.getLogWriter().info("RR: Retrying as got Conflict in executing query.");
+            continue;
+          } else SQLHelper.handleSQLException(se);
+        } catch (TestException te) {
+          if (isHATest &&
+              (te.getMessage().contains("40XD0") || te.getMessage().contains("40XD2"))) {
+            //Log.getLogWriter().info ("got expected node failure exception, continuing test");
+            log().info("could not retry as no HA support for txn yet");
+            return;
+          } else if (te.getMessage().contains(" Conflict detected in transaction operation and it will abort") && (i < 9)) {
+            Log.getLogWriter().info("RR: Retrying as got Conflict in executing query.");
+            continue;
+          } else throw te;
+        }
+        break;
       }
     }
-    while (rsRepeatList == null && isHATest) {      
-      try {
-        PreparedStatement stmt =conn.prepareStatement(sql);
-        Log.getLogWriter().info(sql + " id> " + id + " and id< " + id1 );
-        stmt.setInt(1, id);
-        stmt.setInt(2, id1);
-        ResultSet rs = stmt.executeQuery();
-        rsRepeatList = ResultSetHelper.asList(rs, false);
-      } catch (SQLException se) {
-        if (isHATest && SQLHelper.gotTXNodeFailureException(se)) {
-          //log().info("op failed in gfxd RR tx due to node failure, will try the op, continuing test");       
-          log().info("could not retry as no HA support for txn yet");
-          return;
-        } 
-        else SQLHelper.handleSQLException(se);
-      } catch (TestException te) {
-        if (isHATest && 
-            (te.getMessage().contains("40XD0") || te.getMessage().contains("40XD2"))) {
-          //Log.getLogWriter().info ("got expected node failure exception, continuing test");
-          log().info("could not retry as no HA support for txn yet");
-          return;
-        } else throw te;
-      }
-    } 
     
     ResultSetHelper.compareResultSets(rsList, rsRepeatList, 
         "original RR result", "retry RR result");

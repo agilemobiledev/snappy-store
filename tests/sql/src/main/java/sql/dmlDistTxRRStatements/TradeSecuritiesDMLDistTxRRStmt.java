@@ -95,7 +95,6 @@ public class TradeSecuritiesDMLDistTxRRStmt extends
       try {
         Log.getLogWriter().info("RR: Inserting " + i + " times.");
         insertToGfxdTable(gConn, sec_id, symbol, exchange, price, updateCount, size);
-        break;
       } catch (SQLException se) {
         SQLHelper.printSQLException(se);
         if (se.getSQLState().equalsIgnoreCase("X0Z02")) {
@@ -120,6 +119,7 @@ public class TradeSecuritiesDMLDistTxRRStmt extends
           gfxdse = se;
         }
       }
+      break;
     }
 
     if (!batchingWithSecondaryData) verifyConflict(modifiedKeysByOp, modifiedKeysByTx, gfxdse, false);
@@ -272,7 +272,6 @@ public class TradeSecuritiesDMLDistTxRRStmt extends
           throw new TestException("expected to get conflict exception due to foreign key constraint, but does not." +
               " Please check the logs for more information");
         }
-        break;
       } catch (SQLException se) {
         SQLHelper.printSQLException(se);
         if (se.getSQLState().equalsIgnoreCase("X0Z02")) {
@@ -301,6 +300,7 @@ public class TradeSecuritiesDMLDistTxRRStmt extends
           gfxdse = se;
         }
       }
+      break;
     }
 
     if (!batchingWithSecondaryData) verifyConflict(modifiedKeysByOp, modifiedKeysByTx, gfxdse, false);
@@ -375,7 +375,6 @@ public class TradeSecuritiesDMLDistTxRRStmt extends
       try {
         Log.getLogWriter().info("RR: Deleting " + i + " times");
         deleteFromGfxdTable(gConn, sec_id[0], symbol, exchange, tid, whichDelete, updateCount);
-        break;
       } catch (SQLException se) {
         SQLHelper.printSQLException(se);
         if (se.getSQLState().equalsIgnoreCase("X0Z02")) {
@@ -439,6 +438,7 @@ public class TradeSecuritiesDMLDistTxRRStmt extends
           }
         }
       }
+      break;
     }
 
     if (!batchingWithSecondaryData) verifyConflict(modifiedKeysByOp, modifiedKeysByTx, gfxdse, false);
@@ -482,6 +482,7 @@ public class TradeSecuritiesDMLDistTxRRStmt extends
     ResultSet gfeRS = null;
     ArrayList<SQLException> exceptionList = new ArrayList<SQLException>();
     for (int i = 0; i < 10; i++) {
+      Log.getLogWriter().info("RR: executing query " + i + "times");
       if (dConn != null) {
         try {
           discRS = query(dConn, whichQuery, sec_id, symbol, price, exchange, tid);
@@ -507,7 +508,7 @@ public class TradeSecuritiesDMLDistTxRRStmt extends
               throw new TestException("Not able to get gfe result set after retry");
           }
         } catch (SQLException se) {
-          if (se.getSQLState().equals("X0Z02") && (i <= 9)) {
+          if (se.getSQLState().equals("X0Z02") && (i < 9)) {
             Log.getLogWriter().info("RR: Retrying the query as we got conflicts");
             continue;
           }
@@ -533,7 +534,7 @@ public class TradeSecuritiesDMLDistTxRRStmt extends
           } else if (alterTableDropColumn && se.getSQLState().equals("42X04")) {
             Log.getLogWriter().info("Got expected column not found exception, continuing test");
             return;
-          } else if (se.getSQLState().equals("X0Z02") && (i <= 9)) {
+          } else if (se.getSQLState().equals("X0Z02") && (i < 9)) {
             Log.getLogWriter().info("RR: Retrying the query as we got conflicts");
             continue;
           }
@@ -544,7 +545,7 @@ public class TradeSecuritiesDMLDistTxRRStmt extends
           try {
             ResultSetHelper.asList(gfeRS, false);
           } catch (TestException te) {
-            if (te.getMessage().contains("Conflict detected in transaction operation and it will abort") && (i <=9)) {
+            if (te.getMessage().contains("Conflict detected in transaction operation and it will abort") && (i <9)) {
               Log.getLogWriter().info("RR: Retrying the query as we got conflicts");
               continue;
             } else throw te;

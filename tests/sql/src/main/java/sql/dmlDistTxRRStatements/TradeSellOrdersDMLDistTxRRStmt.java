@@ -119,7 +119,6 @@ public class TradeSellOrdersDMLDistTxRRStmt extends
         //does not expect critical heap exception etc in current tx testing
         //once these coverage are added, similar handling of exceptions seen in getStmt()
         //need to be added here.
-        break;
       } catch (SQLException se) {
         SQLHelper.printSQLException(se);
         if (se.getSQLState().equalsIgnoreCase("X0Z02")) {
@@ -166,6 +165,7 @@ public class TradeSellOrdersDMLDistTxRRStmt extends
           removePartialRangeForeignKeys(cid, sid); //operation not successful, remove the fk constraint keys
         }
       }
+      break;
     }
 
     if (!batchingWithSecondaryData) verifyConflict(modifiedKeysByOp, modifiedKeysByTx, gfxdse, false);
@@ -261,7 +261,6 @@ public class TradeSellOrdersDMLDistTxRRStmt extends
             return true; //assume 0A000 exception does not cause txn to rollback
           }
         }
-        break;
         //partitioned on partitoned key, needs to check if using URS will rollback
         //the tx, if so test needs to be modified. which may needs to separate update
         //by PK and URS (no of column case) and return accordingly here
@@ -287,6 +286,7 @@ public class TradeSellOrdersDMLDistTxRRStmt extends
           SQLHelper.handleSQLException(se);
         }
       }
+      break;
     }
 
     if (!batchingWithSecondaryData) verifyConflict(modifiedKeysByOp, modifiedKeysByTx, gfxdse, false);
@@ -379,7 +379,7 @@ public class TradeSellOrdersDMLDistTxRRStmt extends
               throw new TestException("Not able to get gfe result set after retry");
           }
         } catch (SQLException se) {
-          if(se.getSQLState().equals("X0Z02") && (i<=9)){
+          if(se.getSQLState().equals("X0Z02") && (i < 9)){
             Log.getLogWriter().info("RR: Retrying the query as we got conflicts");
             continue;
           }
@@ -403,7 +403,7 @@ public class TradeSellOrdersDMLDistTxRRStmt extends
           } else if (alterTableDropColumn && se.getSQLState().equals("42X04")) {
             Log.getLogWriter().info("Got expected column not found exception, continuing test");
             return;
-          } else if(se.getSQLState().equals("X0Z02") && (i<=9)){
+          } else if(se.getSQLState().equals("X0Z02") && (i < 9)){
             Log.getLogWriter().info("RR: Retrying the query as we got conflicts");
             continue;
           }
@@ -419,7 +419,7 @@ public class TradeSellOrdersDMLDistTxRRStmt extends
           else
             throw new TestException("gfxd query returns null and not a HA test");
         } catch (TestException te) {
-          if (te.getMessage().contains("Conflict detected in transaction operation and it will abort") && (i <=9)) {
+          if (te.getMessage().contains("Conflict detected in transaction operation and it will abort") && (i < 9)) {
             Log.getLogWriter().info("RR: Retrying the query as we got conflicts");
             continue;
           } else throw te;
