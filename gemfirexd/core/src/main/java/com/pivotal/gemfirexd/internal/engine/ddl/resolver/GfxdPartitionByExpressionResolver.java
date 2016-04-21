@@ -134,8 +134,6 @@ public final class GfxdPartitionByExpressionResolver extends
     }
   }
 
-
-
   public GfxdPartitionByExpressionResolver(Object[] columns) {
     this.partColsOrigOrder = new String[columns.length];
     for (int index = 0; index < columns.length; ++index) {
@@ -404,7 +402,7 @@ public final class GfxdPartitionByExpressionResolver extends
       // if there is a parent, then use its policy to compute routing object
       final String colocatedTable;
       if ((colocatedTable = distDescp.getColocateTableName()) != null) {
-        this.requiresSerializedHash =  ((GfxdPartitionByExpressionResolver)
+        this.requiresSerializedHash = ((GfxdPartitionByExpressionResolver)
             GemFireXDUtils.getResolver((AbstractRegion)Misc.getRegionForTableByPath(
                 colocatedTable, true))).requiresSerializedHash;
       }
